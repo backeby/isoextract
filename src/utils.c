@@ -146,7 +146,8 @@ void node_print_stat_info(FILE *stream, const char *path,
     const struct stat *pst, const char *link_target, bool human_readable) {
   putc(dumpchr_stat_file_type(pst->st_mode), stream);
   dump_stat_perms(stream, pst->st_mode);
-  fprintf(stream, " %d %4u %4u ", pst->st_nlink, pst->st_uid, pst->st_gid);
+  fprintf(stream, " %ju %4ju %4ju ", (uintmax_t) pst->st_nlink,
+      (uintmax_t) pst->st_uid, (uintmax_t) pst->st_gid);
   if (human_readable)
     dump_sz_human(stream, pst->st_size, 5);
   else

@@ -41,19 +41,12 @@
 #include <inttypes.h>
 
 #include <glib.h>
-#include <mirage.h>
+#include <mirage/mirage.h>
 
-// libpcre
+// PCRE2, 8-bit API
 #ifdef CONFIG_REGEX_PCRE
-#include <pcre.h>
-
-// For compatiblity with <libpcre-8.20
-#ifndef PCRE_STUDY_JIT_COMPILE
-#define PCRE_STUDY_JIT_COMPILE    0
-#define LPCRE_FREE_STUDY(extra)   pcre_free(extra)
-#else
-#define LPCRE_FREE_STUDY(extra)   pcre_free_study(extra)
-#endif
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
 
 #endif
 
@@ -113,9 +106,9 @@ typedef struct {
   char **tgt_ptns_wc;
 #ifdef CONFIG_REGEX_PCRE
   /// @brief PCRE patterns of files to extract.
-  pcre **tgt_ptns_pcre;
-  /// @brief Extra data for PCRE patterns of files to extract.
-  pcre_extra **tgt_ptns_pcre_extra;
+  pcre2_code **tgt_ptns_pcre;
+  /// @brief Reusable match result storage for PCRE2.
+  pcre2_match_data *regex_match_data;
 #endif
   /// @brief Whether to extract a matching directory recursively.
   bool recursive;
@@ -141,6 +134,8 @@ typedef struct {
 
 typedef struct {
   options_t o;
+  bool mirage_ready;
+  bool isofs_ready;
   MirageContext *mrg_ctx;
   MirageDisc *mrg_dsk;
   MirageSession *mrg_sess;

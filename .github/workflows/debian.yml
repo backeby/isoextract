@@ -1,0 +1,13 @@
+name: Debian 13
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    strategy:
+      matrix:
+        options: ['', 'NO_REGEX_PCRE_JIT=1', 'NO_REGEX_PCRE=1']
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y build-essential pkgconf libglib2.0-dev libmirage-dev libisofs-dev libpcre2-dev asciidoc-base docbook-xml docbook-xsl xsltproc xorriso
+      - run: make ${{ matrix.options }} CFLAGS='-O2 -g -Wall -Wextra -Werror' && make check ${{ matrix.options }} && make docs && make install DESTDIR=/tmp/stage
