@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
 
   // Initialization
   if (RETV_NEVER != (ret = init(ps, argc, argv)))
-    return ret;
+    goto main_end;
 
   // Load image
   if (!(ps->mrg_dsk = mirage_context_load_image(ps->mrg_ctx,
@@ -68,8 +68,13 @@ main_end:
   if (ps->mrg_dsk)
     free_gobj((GObject **) &ps->mrg_dsk);
 
-  iso_finish();
-  mirage_shutdown(&ps->mrg_err);
+  free_gobj((GObject **) &ps->mrg_ctx);
+  g_clear_error(&ps->mrg_err);
+  if (ps->isofs_ready)
+    iso_finish();
+  if (ps->mirage_ready)
+    mirage_shutdown(&ps->mrg_err);
+  g_clear_error(&ps->mrg_err);
   session_destroy(ps);
   free(ps);
 
@@ -90,28 +95,29 @@ static retv_t init(session_t *ps, int argc, char **argv) {
   if (!cfg_get(ps, argc, argv))
     return RETV_BADARG;
 
-  // Initialize GType, necessary for <glib-2.36
-  g_type_init();
-
   // Initialize libMirage
   if (!mirage_initialize(&ps->mrg_err)) {
     printf_errf("(): Failed to initialize libmirage.");
     dump_gerror(ps->mrg_err);
     return RETV_INTERNAL;
   }
+  ps->mirage_ready = true;
 
   // Initialize libisofs
   if (ISO_SUCCESS != iso_init()) {
     printf_errf("(): Failed to initialize libisofs.");
     return RETV_INTERNAL;
   }
+  ps->isofs_ready = true;
 
   // Create libMirage context
   if (!(ps->mrg_ctx = g_object_new(MIRAGE_TYPE_CONTEXT, NULL))) {
     printf_errf("(): Failed to create libmirage context.");
     return RETV_INTERNAL;
   }
-  mirage_context_set_password_function(ps->mrg_ctx, imrg_callback_pwd, ps);
+  mirage_context_set_password_function(ps->mrg_ctx, imrg_callback_pwd, ps, NULL);
+  if (ps->o.verbose >= 3)
+    mirage_context_set_debug_mask(ps->mrg_ctx, -1);
 
   return RETV_NEVER;
 }
@@ -159,9 +165,9 @@ static retv_t imrg_handle_disc_rel(session_t *ps, MirageDisc *dsk) {
       continue;
     }
 
-    MirageSessionTypes sess_type = mirage_session_get_session_type(ps->mrg_sess);
+    MirageSessionType sess_type = mirage_session_get_session_type(ps->mrg_sess);
     printf_dbgf("(): Session %d, type %s, start %d, len %d...", isess, imrg_dumpstr_sess_type(sess_type), mirage_session_layout_get_start_sector(ps->mrg_sess), mirage_session_layout_get_length(ps->mrg_sess));
-    /* if (MIRAGE_SESSION_CD_I == sess_type) {
+    /* if (MIRAGE_SESSION_CDI == sess_type) {
       printf_dbgf("(): Skipping session...");
       continue;
     } */
@@ -178,7 +184,7 @@ static retv_t imrg_handle_disc_rel(session_t *ps, MirageDisc *dsk) {
         continue;
       }
 
-      MirageTrackModes mode = mirage_track_get_mode(ps->mrg_trk);
+      MirageSectorType mode = mirage_track_get_sector_type(ps->mrg_trk);
       printf_dbgf("(): Track %d (%d), mode %s, start_sec %d, len_sec %d...", itrk, mirage_track_layout_get_track_number(ps->mrg_trk), imrg_dumpstr_trk_mode(mode), mirage_track_layout_get_start_sector(ps->mrg_trk), mirage_track_layout_get_length(ps->mrg_trk));
       // Ignore empty tracks
       if (!mirage_track_layout_get_length(ps->mrg_trk)) {
@@ -202,7 +208,7 @@ static retv_t imrg_handle_disc_rel(session_t *ps, MirageDisc *dsk) {
         printf_dbgf("(): Fragment %d, fmt %s, sector_sz %d, start_sec %d, len_sec %d, main_offset %" PRIu64 "...", ifrag, imrg_dumpstr_frag_fmt(frag_fmt), mirage_fragment_main_data_get_size(ps->mrg_frag), mirage_fragment_get_address(ps->mrg_frag), mirage_fragment_get_length(ps->mrg_frag), mirage_fragment_main_data_get_offset(ps->mrg_frag));
 
         // Skip audio fragments and empty fragments
-        if (MIRAGE_MAIN_DATA != frag_fmt
+        if (MIRAGE_MAIN_DATA_FORMAT_DATA != frag_fmt
             || !mirage_fragment_get_length(ps->mrg_frag)) {
           printf_dbgf("(): Skipping fragment...");
           continue;
@@ -237,7 +243,7 @@ static retv_t imrg_handle_disc_rel(session_t *ps, MirageDisc *dsk) {
  *
  * @return true if successful, false otherwise
  */
-static inline bool imrg_guess_dlen(session_t *ps, MirageTrackModes mode,
+static inline bool imrg_guess_dlen(session_t *ps, MirageSectorType mode,
     int len) {
   // Guess the data length
   {
@@ -245,18 +251,20 @@ static inline bool imrg_guess_dlen(session_t *ps, MirageTrackModes mode,
 
     if (dlen <= 0) {
       switch (mode) {
-        case MIRAGE_MODE_AUDIO:
+        case MIRAGE_SECTOR_AUDIO:
           dlen = 2352;
           break;
-        case MIRAGE_MODE_MODE1:
-        case MIRAGE_MODE_MODE2_FORM1:
+        case MIRAGE_SECTOR_MODE1:
+        case MIRAGE_SECTOR_MODE2_FORM1:
           dlen = 2048;
           break;
-        case MIRAGE_MODE_MODE2:
+        case MIRAGE_SECTOR_MODE2:
           dlen = 2336;
           break;
-        case MIRAGE_MODE_MODE2_FORM2:
+        case MIRAGE_SECTOR_MODE2_FORM2:
           dlen = 2324;
+          break;
+        default:
           break;
       }
     }
@@ -291,7 +299,7 @@ static inline bool imrg_guess_dlen(session_t *ps, MirageTrackModes mode,
  *
  * @return true if successful, false otherwise
  */
-static inline bool imrg_guess_pads(session_t *ps, MirageTrackModes mode,
+static inline bool imrg_guess_pads(session_t *ps, MirageSectorType mode,
     int len) {
   // Guess the start padding
   {
@@ -305,13 +313,15 @@ static inline bool imrg_guess_pads(session_t *ps, MirageTrackModes mode,
       }
       else {
         switch (mode) {
-          case MIRAGE_MODE_MODE1:
-          case MIRAGE_MODE_MODE2:
+          case MIRAGE_SECTOR_MODE1:
+          case MIRAGE_SECTOR_MODE2:
             padding = 16;
             break;
-          case MIRAGE_MODE_MODE2_FORM1:
-          case MIRAGE_MODE_MODE2_FORM2:
+          case MIRAGE_SECTOR_MODE2_FORM1:
+          case MIRAGE_SECTOR_MODE2_FORM2:
             padding = 24;
+            break;
+          default:
             break;
         }
       }
@@ -358,7 +368,7 @@ static bool imrg_guess_params_abs(session_t *ps, MirageDisc *dsk) {
     goto imrg_guess_params_abs_end;
   }
 
-  MirageTrackModes mode = mirage_sector_get_sector_type(sector);
+  MirageSectorType mode = mirage_sector_get_sector_type(sector);
 
   if (!imrg_guess_dlen(ps, mode, len) || !imrg_guess_pads(ps, mode, len))
     goto imrg_guess_params_abs_end;
@@ -379,7 +389,7 @@ imrg_guess_params_abs_end:
  * @brief Guess sector parameters in relative positioning mode.
  */
 static bool imrg_guess_params_rel(session_t *ps, MirageFragment *frag,
-    MirageTrackModes mode) {
+    MirageSectorType mode) {
   const int len = mirage_fragment_main_data_get_size(frag);
 
   if (!imrg_guess_dlen(ps, mode, len) || !imrg_guess_pads(ps, mode, len))
@@ -520,7 +530,7 @@ static gchar *imrg_callback_pwd(gpointer user_data) {
  * @return true if successful, false otherwise
  */
 static inline bool iiso_handle_file(session_t *ps, IsoFileSource *pfile,
-    const char *name, const char *path) {
+    const char *path) {
   // Nothing more to do in list mode
   if (MODE_LIST == ps->o.op_mode)
     return true;
@@ -552,12 +562,12 @@ static inline bool iiso_handle_file(session_t *ps, IsoFileSource *pfile,
   {
     static const unsigned BUF_SZ = 2048;
 
-    char *buf[BUF_SZ];
+    char buf[BUF_SZ];
     int len_read = 0;
     while ((len_read = iso_file_source_read(pfile, buf, BUF_SZ)) > 0) {
-      if (len_read != fwrite(buf, 1, len_read, fout)) {
+      if ((size_t) len_read != fwrite(buf, 1, (size_t) len_read, fout)) {
         printf_errf("(%s): Failed to write output file \"%s\".", path, tpath);
-        break;
+        goto iiso_handle_file_end;
       }
     }
 
@@ -573,8 +583,10 @@ iiso_handle_file_end:
   free(tpath);
   if (src_opened)
     iso_file_source_close(pfile);
-  if (fout)
-    fclose(fout);
+  if (fout && fclose(fout) != 0) {
+    printf_errf("(%s): Failed to close output file.", path);
+    ret = false;
+  }
 
   return ret;
 }
@@ -645,8 +657,8 @@ static matched_t node_match(session_t *ps, node_type_t node_type,
     if ((NODE_FILE == node_type
           || (NODE_DIR == node_type && ps->o.recursive))) {
       for (int i = 0; ps->o.tgt_ptns_pcre[i]; ++i) {
-        if (pcre_exec(ps->o.tgt_ptns_pcre[i], ps->o.tgt_ptns_pcre_extra[i],
-              path, strlen(path), 0, 0, NULL, 0) >= 0) {
+        if (pcre2_match(ps->o.tgt_ptns_pcre[i], (PCRE2_SPTR) path,
+              strlen(path), 0, 0, ps->o.regex_match_data, NULL) >= 0) {
           UPD_MATCHED(NODE_DIR == node_type ? MATCHED_RECURSIVE: MATCHED_FILE);
           // No better matches possible, safe to break out here
           break;
@@ -697,8 +709,8 @@ static matched_t node_match(session_t *ps, node_type_t node_type,
  * @param matched match mode
  * @param pfile IsoFileSource of node
  */
-static inline void iiso_show_file(session_t *ps, node_type_t node_type,
-    const char *name, const char *path, matched_t matched,
+static inline void iiso_show_file(session_t *ps,
+    const char *path, matched_t matched,
     IsoFileSource *pfile) {
   // Passthrough matches should not be considered
   if (MATCHED_DIR_PASSTHROUGH == matched)
@@ -746,7 +758,7 @@ static retv_t iiso_handle_node(session_t *ps, IsoFileSource *pfile,
   // Get node type
   mode_t md = iiso_get_file_mode(pfile);
   if (!(S_ISREG(md) || S_ISDIR(md))) {
-    printf_errf("(%s): Unknown node type %#08x.", path, md);
+    printf_errf("(): Unknown node type %#08x.", (unsigned) md);
     goto iiso_handle_node_end;
   }
   node_type_t node_type = (S_ISDIR(md) ? NODE_DIR: NODE_FILE);
@@ -768,11 +780,11 @@ static retv_t iiso_handle_node(session_t *ps, IsoFileSource *pfile,
     goto iiso_handle_node_end;
 
   // Display file info
-  iiso_show_file(ps, node_type, name, path, matched, pfile);
+  iiso_show_file(ps, path, matched, pfile);
 
   // Regular file
   if (NODE_FILE == node_type) {
-    if (iiso_handle_file(ps, pfile, name, path))
+    if (iiso_handle_file(ps, pfile, path))
       ret = RETV_MATCHED;
   }
   // Directory
@@ -1146,46 +1158,39 @@ static bool cfg_process_src_paths_pcre(session_t *ps) {
 
   // Allocate space for an array of PCRE regexps
   assert(!ps->o.tgt_ptns_pcre);
-  ps->o.tgt_ptns_pcre = calloc(len + 1, sizeof(pcre *));
+  ps->o.tgt_ptns_pcre = calloc(len + 1, sizeof(pcre2_code *));
   allocchk(ps->o.tgt_ptns_pcre);
-  ps->o.tgt_ptns_pcre_extra = calloc(len + 1, sizeof(pcre_extra *));
-  allocchk(ps->o.tgt_ptns_pcre_extra);
+  ps->o.regex_match_data = pcre2_match_data_create(1, NULL);
+  allocchk(ps->o.regex_match_data);
 
   char ** const strv = ps->o.tgt_ptns_wc;
-  pcre ** const pcrev = ps->o.tgt_ptns_pcre;
+  pcre2_code ** const pcrev = ps->o.tgt_ptns_pcre;
   pcrev[len] = NULL;
-  pcre_extra ** const pcreexv = ps->o.tgt_ptns_pcre_extra;
-  pcreexv[len] = NULL;
 
-  // Parse from the last to the first, to avoid messing up string list
-  for (int i = len - 1; i >= 0; --i) {
-    const char *error = NULL;
-    int erroffset = 0;
-    int options = 0;
+  for (int i = 0; i < len; ++i) {
+    int error;
+    PCRE2_SIZE erroffset;
 
     // Compile PCRE expression
-    pcrev[i] = pcre_compile(strv[i], options, &error, &erroffset, NULL);
+    pcrev[i] = pcre2_compile((PCRE2_SPTR) strv[i], PCRE2_ZERO_TERMINATED,
+        0, &error, &erroffset, NULL);
     if (!pcrev[i]) {
-      printf_errf("(%u): Pattern \"%s\": PCRE regular expression parsing "
-          "failed on offset %d: %s", i, strv[i], erroffset, error);
+      PCRE2_UCHAR message[256];
+      pcre2_get_error_message(error, message, sizeof(message));
+      printf_errf("(%d): Pattern \"%s\": PCRE2 regular expression parsing "
+          "failed at offset %zu: %s", i, strv[i], (size_t) erroffset,
+          (char *) message);
       return false;
     }
 #ifdef CONFIG_REGEX_PCRE_JIT
-    pcreexv[i] = pcre_study(pcrev[i], PCRE_STUDY_JIT_COMPILE, &error);
-    if (!pcreexv[i]) {
-      printf_errf("(%u): Pattern \"%s\": PCRE regular expression study "
-          "failed: %s", i, strv[i], error);
-      return false;
-    }
-#else
-    pcreexv[i] = NULL;
+    // JIT is optional; unsupported patterns/platforms use the interpreter.
+    (void) pcre2_jit_compile(pcrev[i], PCRE2_JIT_COMPLETE);
 #endif
 
-    // Free the target string
-    free(strv[i]);
-    strv[i] = NULL;
   }
 
+  for (int i = 0; i < len; ++i)
+    free(strv[i]);
   free(ps->o.tgt_ptns_wc);
   ps->o.tgt_ptns_wc = NULL;
 

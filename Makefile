@@ -7,6 +7,7 @@
 # GNU make may get unhappy.
 
 CC ?= gcc
+PKG_CONFIG ?= pkg-config
 
 PREFIX ?= /usr
 BINDIR ?= $(PREFIX)/bin
@@ -19,31 +20,30 @@ INCS =
 OBJS = isoextract.o utils.o
 
 # === Configuration flags ===
-CFG = -std=c99
+CFG = -std=c11 -D_FILE_OFFSET_BITS=64
 
 # ==== PCRE ====
 ifeq "$(NO_REGEX_PCRE)" ""
   CFG += -DCONFIG_REGEX_PCRE
-  LIBS += $(shell pcre-config --libs)
-  INCS += $(shell pcre-config --cflags)
+  PACKAGES += libpcre2-8
   ifeq "$(NO_REGEX_PCRE_JIT)" ""
     CFG += -DCONFIG_REGEX_PCRE_JIT
   endif
 endif
 
 # === Version string ===
-ISOEXTRACT_VERSION ?= git-$(shell git describe --always --dirty)-$(shell git log -1 --date=short --pretty=format:%cd)
+ISOEXTRACT_VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo unknown)
 CFG += -DISOEXTRACT_VERSION="\"$(ISOEXTRACT_VERSION)\""
 
 LDFLAGS ?= -Wl,-O1 -Wl,--as-needed
 CFLAGS ?= -DNDEBUG -O2 -D_FORTIFY_SOURCE=2
 
-LIBS += $(shell pkg-config --libs $(PACKAGES))
-INCS += $(shell pkg-config --cflags $(PACKAGES))
+LIBS += $(shell $(PKG_CONFIG) --libs $(PACKAGES))
+INCS += $(shell $(PKG_CONFIG) --cflags $(PACKAGES))
 # Replace -I with -isystem to silence warnings in those header files
 INCS := $(patsubst -I%, -isystem%, $(INCS))
 
-CFLAGS += -Wall
+CFLAGS += -Wall -Wextra -Wformat=2
 ifneq "$(DEV)" ""
   CC = clang
   CFLAGS += -Weverything -Wno-disabled-macro-expansion -Wno-padded -Wno-gnu -ggdb
@@ -61,8 +61,10 @@ EXTRADOCS = README.asciidoc
 src/.clang_complete: Makefile
 	@(for i in $(filter-out -O% -DNDEBUG, $(CFG) $(CFLAGS) $(INCS)); do echo "$$i"; done) > $@
 
-%.o: src/%.c src/%.h src/%-pub.h src/common.h
-	$(CC) $(CFG) $(CFLAGS) $(INCS) -c src/$*.c
+%.o: src/%.c
+	$(CC) $(CPPFLAGS) $(CFG) $(CFLAGS) $(INCS) -MMD -MP -c $< -o $@
+
+-include $(OBJS:.o=.d)
 
 isoextract: $(OBJS)
 	$(CC) $(CFG) $(LDFLAGS) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
@@ -75,7 +77,7 @@ man/%.1.html: man/%.1.asciidoc
 
 docs: $(MANPAGES) $(MANPAGES_HTML)
 
-install: $(BINS) docs
+install: $(BINS) $(MANPAGES)
 	@install -d "$(DESTDIR)$(BINDIR)" "$(DESTDIR)$(MANDIR)"
 	@install -m755 $(BINS) "$(DESTDIR)$(BINDIR)"/ 
 	@install -m644 $(MANPAGES) "$(DESTDIR)$(MANDIR)"/
@@ -92,9 +94,12 @@ ifneq "$(DOCDIR)" ""
 endif
 
 clean:
-	@rm -f $(OBJS) isoextract $(MANPAGES) $(MANPAGES_HTML) src/.clang_complete
+	@rm -f $(OBJS) $(OBJS:.o=.d) isoextract $(MANPAGES) $(MANPAGES_HTML) src/.clang_complete
+
+check: isoextract
+	sh tests/integration.sh
 
 version:
 	@echo "$(ISOEXTRACT_VERSION)"
 
-.PHONY: uninstall clean docs version
+.PHONY: install uninstall clean docs version check

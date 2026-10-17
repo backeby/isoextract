@@ -177,30 +177,17 @@ static inline void strv_free(char ***pstrv) {
 /**
  * @brief Free a PCRE pattern vector and all items in it.
  */
-static inline void pcrev_free(pcre ***ppcrev) {
+static inline void pcrev_free(pcre2_code ***ppcrev) {
   if (!*ppcrev)
     return;
 
-  for (pcre **pcrev = *ppcrev; *pcrev; ++pcrev)
-    pcre_free(*pcrev);
+  for (pcre2_code **pcrev = *ppcrev; *pcrev; ++pcrev)
+    pcre2_code_free(*pcrev);
 
   free(*ppcrev);
   *ppcrev = NULL;
 }
 
-/**
- * @brief Free a PCRE extra data vector and all items in it.
- */
-static inline void pcreexv_free(pcre_extra ***ppcreexv) {
-  if (!*ppcreexv)
-    return;
-
-  for (pcre_extra **pcreexv = *ppcreexv; *pcreexv; ++pcreexv)
-    LPCRE_FREE_STUDY(*pcreexv);
-
-  free(*ppcreexv);
-  *ppcreexv = NULL;
-}
 #endif
 
 /**

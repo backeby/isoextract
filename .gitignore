@@ -5,6 +5,7 @@
 # Generated code files
 /isoextract
 /*.o
+/*.d
 /src/.clang_complete
 core
 core.*

@@ -29,13 +29,13 @@ isoextract supports link:http://cdemu.org/about/libmirage/[all the format libmir
 
 Dependencies
 ------------
-* =libmirage-2*
+* libmirage 3 (Debian 13: libmirage-dev)
 
 * =glib-2*
 
 * libisofs
 
-* libpcre
+* PCRE2 (8-bit API; Debian 13: libpcre2-dev)
 
 * asciidoc, docbook-xml-dtd, etc., if you need to build the man page (build time)
 
@@ -44,13 +44,38 @@ Dependencies
 How to build
 ------------
 
+On Debian 13 (trixie), install the dependencies from the standard repositories:
+
+[source,sh]
+----
+sudo apt-get update
+sudo apt-get install build-essential pkgconf libglib2.0-dev libmirage-dev libisofs-dev libpcre2-dev asciidoc-base docbook-xml docbook-xsl xsltproc
+----
+
 [source,sh]
 ----
 # Build program
 $ make
 # Build docs
 $ make docs
+# Install program and man page (PREFIX and DESTDIR are supported)
+$ sudo make install
+# Run integration tests against generated ISO and CUE/BIN images
+$ sudo apt-get install xorriso
+$ make check
 ----
+
+The build uses C11 and large-file support. Compiler and linker flags may be
+overridden with `CC`, `CPPFLAGS`, `CFLAGS`, and `LDFLAGS`. `PKG_CONFIG` may
+also be overridden. Use `make clean` before changing build options.
+
+Regular expressions use PCRE2 with optional JIT acceleration. Patterns rejected
+by PCRE2 are reported as argument errors. JIT falls back to interpreted matching
+when unavailable. The existing `NO_REGEX_PCRE=1` and `NO_REGEX_PCRE_JIT=1`
+build options remain supported.
+
+libmirage loads format and filter plugins at runtime. If it reports a missing
+`libsndfile.so.1` for its audio filter, install `libsndfile1`.
 
 Usage
 -----

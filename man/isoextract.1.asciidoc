@@ -2,7 +2,7 @@ isoextract(1)
 =============
 :doctype:     manpage
 :man source:  isoextract
-:man version: nightly-20130203
+:man version: Debian 13
 :man manual:  LOCAL USER COMMANDS
 
 NAME
@@ -25,6 +25,50 @@ OPTIONS
 -------
 *-h*, *--help*::
 	Get the usage text embedded in program code, which may be more up-to-date than this man page.
+
+*-i* 'IMAGE'::
+	Input image. Repeat for image formats involving multiple files.
+
+*-o* 'OUTPUT_PATH'::
+	Extract into this directory (default: current directory).
+
+*-l*::
+	List matching files instead of extracting them.
+
+*-r*::
+	Match directories recursively.
+
+*-P*::
+	Interpret patterns as PCRE2 regular expressions instead of shell wildcards.
+
+*-c* 'CHARSET'::
+	Input image character set. See `iconv -l` for available names.
+
+*-v*::
+	Increase verbosity. May be repeated. Three repetitions also enable libmirage
+	debug messages when `G_MESSAGES_DEBUG=all` is set.
+
+*--password* 'PASSWORD'::
+	Password for encrypted image formats.
+
+*--absolute*::
+	Use absolute sector addresses for images with incorrect track metadata.
+
+*--offset* 'BYTES'::
+	Add this byte offset when reading sectors (default: zero).
+
+*--sector-data-len* 'BYTES'::
+	Override the detected data length per sector.
+
+*--sector-padding-start* 'BYTES'::
+	Override the detected padding before sector data.
+
+*--sz-human-readable*::
+	Use human-readable sizes in verbose listings.
+
+With no patterns, extract or list the entire image. Only ISO9660 filesystems
+are supported, including the extensions understood by libisofs; UDF remains
+unsupported.
 
 EXAMPLES
 --------

@@ -70,30 +70,33 @@ static inline const char *dumpstr_matched(matched_t matched) {
 }
 
 /**
- * @brief Return a const string representation of a MirageSessionTypes.
+ * @brief Return a const string representation of a MirageSessionType.
  */
-static inline const char *imrg_dumpstr_sess_type(MirageSessionTypes type) {
+static inline const char *imrg_dumpstr_sess_type(MirageSessionType type) {
   switch (type) {
-    CASEMNAMERET(MIRAGE_SESSION_CD_ROM);
-    CASEMNAMERET(MIRAGE_SESSION_CD_I);
-    CASEMNAMERET(MIRAGE_SESSION_CD_ROM_XA);
+    CASEMNAMERET(MIRAGE_SESSION_CDDA);
+    CASEMNAMERET(MIRAGE_SESSION_CDROM);
+    CASEMNAMERET(MIRAGE_SESSION_CDI);
+    CASEMNAMERET(MIRAGE_SESSION_CDROM_XA);
   }
 
   return NULL;
 }
 
 /**
- * @brief Return a const string representation of a MirageTrackModes.
+ * @brief Return a const string representation of a MirageSectorType.
  */
-static inline const char *imrg_dumpstr_trk_mode(MirageTrackModes mode) {
+static inline const char *imrg_dumpstr_trk_mode(MirageSectorType mode) {
   switch (mode) {
-    CASEMNAMERET(MIRAGE_MODE_MODE0);
-    CASEMNAMERET(MIRAGE_MODE_AUDIO);
-    CASEMNAMERET(MIRAGE_MODE_MODE1);
-    CASEMNAMERET(MIRAGE_MODE_MODE2);
-    CASEMNAMERET(MIRAGE_MODE_MODE2_FORM1);
-    CASEMNAMERET(MIRAGE_MODE_MODE2_FORM2);
-    CASEMNAMERET(MIRAGE_MODE_MODE2_MIXED);
+    CASEMNAMERET(MIRAGE_SECTOR_RAW);
+    CASEMNAMERET(MIRAGE_SECTOR_RAW_SCRAMBLED);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE0);
+    CASEMNAMERET(MIRAGE_SECTOR_AUDIO);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE1);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE2);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE2_FORM1);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE2_FORM2);
+    CASEMNAMERET(MIRAGE_SECTOR_MODE2_MIXED);
   }
 
   return NULL;
@@ -105,9 +108,9 @@ static inline const char *imrg_dumpstr_trk_mode(MirageTrackModes mode) {
 static inline const char *imrg_dumpstr_frag_fmt(gint format) {
   switch (format) {
     case 0: return "MIRAGE_MAIN_NULL";
-    CASEMNAMERET(MIRAGE_MAIN_DATA);
-    CASEMNAMERET(MIRAGE_MAIN_AUDIO);
-    CASEMNAMERET(MIRAGE_MAIN_AUDIO_SWAP);
+    CASEMNAMERET(MIRAGE_MAIN_DATA_FORMAT_DATA);
+    CASEMNAMERET(MIRAGE_MAIN_DATA_FORMAT_AUDIO);
+    CASEMNAMERET(MIRAGE_MAIN_DATA_FORMAT_AUDIO_SWAP);
   }
 
   return NULL;
@@ -124,7 +127,7 @@ static retv_t imrg_handle_disc_rel(session_t *ps, MirageDisc *dsk);
 static bool imrg_guess_params_abs(session_t *ps, MirageDisc *dsk);
 
 static bool imrg_guess_params_rel(session_t *ps, MirageFragment *frag,
-    MirageTrackModes mode);
+    MirageSectorType mode);
 
 static IsoDataSource *imrg_build_datasrc(session_t *ps,
     MirageDisc *dsk, MirageFragment *frag);
@@ -189,7 +192,7 @@ static inline void session_destroy(session_t *ps) {
   strv_free(&ps->o.tgt_ptns_wc);
 #ifdef CONFIG_REGEX_PCRE
   pcrev_free(&ps->o.tgt_ptns_pcre);
-  pcreexv_free(&ps->o.tgt_ptns_pcre_extra);
+  pcre2_match_data_free(ps->o.regex_match_data);
 #endif
   free(ps->o.tgt_path);
 }
